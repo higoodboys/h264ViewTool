@@ -1,0 +1,41 @@
+# 构建产物
+/build/
+/out/
+/cmake-build-*/
+/.vs/
+/*.user
+/*.suo
+CMakeCache.txt
+CMakeFiles/
+compile_commands.json
+
+# Qt
+*.qmlc
+*.jsc
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# IDE
+.idea/
+.vscode/
+*.code-workspace
+
+# 本地依赖（可选拷贝）
+/third_party/ffmpeg/
+*.dll
+*.pdb
+*.exe
+
+# 测试样例（体积大时勿提交）
+/samples/
+*.mp4
+*.avi
+*.h264
+*.264
+
+# 允许保留 third_party 说明；大型 DLL 默认不入库（本机构建时从 MSYS2 拷贝）
+!third_party/ffmpeg/README.md
+
+# 发布包（本地生成，体积大）
+/dist/
