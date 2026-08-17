@@ -9,7 +9,10 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMimeData>
+#include <QPixmap>
+#include <QResizeEvent>
 #include <QScrollArea>
+#include <QSizePolicy>
 #include <QStatusBar>
 #include <memory>
 
@@ -21,15 +24,20 @@ PreviewWindow::PreviewWindow(SyncController* sync, QWidget* parent)
     setAcceptDrops(true);
     resize(960, 540);
 
-    auto* scroll = new QScrollArea(this);
-    scroll->setWidgetResizable(true);
+    scrollArea_ = new QScrollArea(this);
+    scrollArea_->setWidgetResizable(true);
+    scrollArea_->setAlignment(Qt::AlignCenter);
+    scrollArea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea_->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scrollArea_->setStyleSheet(QStringLiteral("QScrollArea { background:#1e1e22; border: none; }"));
     imageLabel_ = new QLabel;
     imageLabel_->setAlignment(Qt::AlignCenter);
-    imageLabel_->setMinimumSize(320, 180);
+    imageLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
+    imageLabel_->setMinimumSize(1, 1);
     imageLabel_->setStyleSheet(QStringLiteral("background:#1e1e22; color:#ddd;"));
     imageLabel_->setText(QStringLiteral("预览窗口\n拖入或通过控制窗口打开文件"));
-    scroll->setWidget(imageLabel_);
-    setCentralWidget(scroll);
+    scrollArea_->setWidget(imageLabel_);
+    setCentralWidget(scrollArea_);
     statusBar()->showMessage(QStringLiteral("就绪"));
 
     connect(sync_, &SyncController::currentFrameChanged, this, &PreviewWindow::onCurrentFrameChanged);
@@ -80,12 +88,36 @@ void PreviewWindow::onCurrentFrameChanged(int index) {
 }
 
 void PreviewWindow::showImage(const QImage& img) {
+    currentImage_ = img;
     if (img.isNull()) {
+        imageLabel_->setPixmap(QPixmap());
         imageLabel_->setText(QStringLiteral("无图像"));
         return;
     }
-    imageLabel_->setPixmap(QPixmap::fromImage(img));
-    imageLabel_->adjustSize();
+    imageLabel_->setText(QString());
+    updateScaledPixmap();
+}
+
+void PreviewWindow::updateScaledPixmap() {
+    if (currentImage_.isNull() || !scrollArea_ || !imageLabel_)
+        return;
+
+    const QSize logical = scrollArea_->viewport()->size();
+    if (logical.width() < 1 || logical.height() < 1)
+        return;
+
+    const qreal dpr = imageLabel_->devicePixelRatioF();
+    const QSize physical(qMax(1, qRound(logical.width() * dpr)),
+                         qMax(1, qRound(logical.height() * dpr)));
+    QPixmap scaled = QPixmap::fromImage(currentImage_).scaled(
+        physical, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    scaled.setDevicePixelRatio(dpr);
+    imageLabel_->setPixmap(scaled);
+}
+
+void PreviewWindow::resizeEvent(QResizeEvent* event) {
+    QMainWindow::resizeEvent(event);
+    updateScaledPixmap();
 }
 
 void PreviewWindow::dragEnterEvent(QDragEnterEvent* event) {

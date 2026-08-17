@@ -5,6 +5,7 @@
 #include <memory>
 
 class QLabel;
+class QScrollArea;
 
 namespace h264tool {
 
@@ -33,13 +34,17 @@ protected:
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
 private:
     void showImage(const QImage& img);
+    void updateScaledPixmap();
 
     SyncController* sync_ = nullptr;
     std::unique_ptr<IDecoder> decoder_;
+    QScrollArea* scrollArea_ = nullptr;
     QLabel* imageLabel_ = nullptr;
+    QImage currentImage_;
     QString path_;
 };
 
