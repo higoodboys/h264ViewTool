@@ -24,6 +24,7 @@
 ┌───────────────────────────▼─────────────────────────────┐
 │  解码层 (可选)                                            │
 │  IDecoder ← FFmpegDecoder / NullDecoder                  │
+│  setStreamIndex：按已解析 NAL/关键帧从最近 I 帧解码预览     │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -39,7 +40,7 @@
 | `FrameInfo` | 一帧聚合信息（可含多 NAL） |
 | `StreamAnalyzer` | 遍历 NAL，组装帧列表与全局统计 |
 | `RawH264Reader` | 读裸流并分割 NAL |
-| `Mp4Demuxer` | 解析 ftyp/moov/trak/stsd(avcC)/mdat，输出 AVCC NAL |
+| `Mp4Demuxer` | 解析 ftyp/moov/trak/stsd(avcC)；progressive 走 stsz/stco，fMP4 走 moof/trun，输出 AVCC NAL |
 | `AviDemuxer` | 解析 RIFF/hdrl/movi，提取 H264 块 |
 | `FileLoader` | 按扩展名/魔数选择读取器 |
 | `IDecoder` | 解码接口：seek/decodeFrame → QImage |

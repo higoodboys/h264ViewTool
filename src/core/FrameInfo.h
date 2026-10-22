@@ -60,6 +60,8 @@ struct FrameInfo {
     int qp = -1;
     int poc = 0;
     uint32_t frameNum = 0;
+    size_t nalBegin = 0; ///< 所属 NAL 在源列表中的 [begin, end)
+    size_t nalEnd = 0;
     std::vector<int> refList0;
     std::vector<int> refList1;
     QString notes;

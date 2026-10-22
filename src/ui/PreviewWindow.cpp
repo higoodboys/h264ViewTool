@@ -66,7 +66,15 @@ void PreviewWindow::openFile(const QString& path) {
 
     setWindowTitle(QStringLiteral("H264Tool - Preview [%1]").arg(path));
     statusBar()->showMessage(QStringLiteral("解码后端: %1").arg(decoder_->backendName()));
-    onCurrentFrameChanged(sync_->currentFrame());
+    // 不在此处解码：等 MainControl 注入 setStreamIndex 后再切帧，避免无索引时从头重解
+}
+
+void PreviewWindow::setStreamIndex(const std::vector<NalUnit>* nals,
+                                   const std::vector<FrameInfo>& frames) {
+    if (!decoder_) return;
+    decoder_->setStreamIndex(nals, frames);
+    if (auto* nullDec = dynamic_cast<NullDecoder*>(decoder_.get()))
+        nullDec->setFrameCount(static_cast<int>(frames.size()));
 }
 
 void PreviewWindow::onCurrentFrameChanged(int index) {

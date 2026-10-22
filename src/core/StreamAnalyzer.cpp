@@ -29,7 +29,8 @@ StreamAnalyzer::Result StreamAnalyzer::analyze(const std::vector<NalUnit>& nals,
         inFrame = false;
     };
 
-    for (const auto& nal : nals) {
+    for (size_t nalIndex = 0; nalIndex < nals.size(); ++nalIndex) {
+        const auto& nal = nals[nalIndex];
         if (nal.type == NalType::Sps) {
             if (auto sps = SpsPpsParser::parseSps(nal.ebspData(), nal.ebspSize())) {
                 currentSps = *sps;
@@ -82,6 +83,8 @@ StreamAnalyzer::Result StreamAnalyzer::analyze(const std::vector<NalUnit>& nals,
             flushFrame();
             inFrame = true;
             current.fileOffset = nal.fileOffset;
+            current.nalBegin = nalIndex;
+            current.nalEnd = nalIndex;
             current.isIdr = isIdr;
             if (haveSh) {
                 current.type = frameTypeFromSlice(sh.kind);
@@ -95,6 +98,7 @@ StreamAnalyzer::Result StreamAnalyzer::analyze(const std::vector<NalUnit>& nals,
             }
         }
 
+        current.nalEnd = nalIndex + 1;
         current.sizeBytes += nal.totalSize();
         if (isIdr) {
             current.isIdr = true;

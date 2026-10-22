@@ -145,10 +145,16 @@ void MainControlWindow::openFile(const QString& path) {
         QMessageBox::warning(this, QStringLiteral("打开失败"), result.error);
         return;
     }
-    applyAnalysis(result);
-
+    // 先换解码器；注入索引前断开预览切帧，避免无索引时从头重解
     preview_->setDecoder(DecoderFactory::create());
     preview_->openFile(path);
+    disconnect(sync_, &SyncController::currentFrameChanged, preview_,
+               &PreviewWindow::onCurrentFrameChanged);
+    applyAnalysis(result);
+    preview_->setStreamIndex(&loaded_.nals, loaded_.analysis.frames);
+    connect(sync_, &SyncController::currentFrameChanged, preview_,
+            &PreviewWindow::onCurrentFrameChanged);
+    preview_->onCurrentFrameChanged(sync_->currentFrame());
     preview_->show();
     preview_->raise();
 }

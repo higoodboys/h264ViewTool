@@ -5,9 +5,11 @@
 namespace h264tool {
 
 /**
- * @brief 轻量 MP4 解复用：定位 vide 轨道、解析 avcC、从 mdat/sample 提取 AVCC NAL。
+ * @brief 轻量 MP4 解复用：定位 vide 轨道、解析 avcC、从 sample 提取 AVCC NAL。
  *
- * 支持常见 avc1 progressive download（非 fragmented）。复杂 fMP4 可后续扩展或走 FFmpeg。
+ * 支持：
+ * - progressive：stsz/stsc/stco(co64) 样本表
+ * - fragmented（fMP4）：mvex/trex + moof/traf/tfhd/trun → mdat 样本
  */
 class Mp4Demuxer {
 public:

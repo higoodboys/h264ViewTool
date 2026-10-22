@@ -1,8 +1,12 @@
 #pragma once
 
+#include "core/FrameInfo.h"
+#include "core/NalUnit.h"
+
 #include <QMainWindow>
 #include <QImage>
 #include <memory>
+#include <vector>
 
 class QLabel;
 class QScrollArea;
@@ -23,6 +27,9 @@ public:
 
     void setDecoder(std::unique_ptr<IDecoder> decoder);
     void openFile(const QString& path);
+    /** 注入分析阶段的 NAL/帧索引，供解码器按 offset/关键帧快速跳转 */
+    void setStreamIndex(const std::vector<NalUnit>* nals,
+                        const std::vector<FrameInfo>& frames);
 
 signals:
     void fileDropped(const QString& path);

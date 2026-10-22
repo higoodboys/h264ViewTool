@@ -5,6 +5,7 @@
 #if H264TOOL_HAS_FFMPEG
 
 #include <QString>
+#include <vector>
 
 struct AVFormatContext;
 struct AVCodecContext;
@@ -16,7 +17,10 @@ namespace h264tool {
 
 /**
  * @brief 基于 FFmpeg 的软解。
- * 裸 H.264 不支持可靠 seek：回退到更早帧时完整重新打开文件再顺序解码。
+ *
+ * 若调用 setStreamIndex，则按已解析的 NAL/关键帧索引在内存中喂给解码器：
+ * 跳转时从最近 I/IDR 解到目标帧，无需从文件头重解。
+ * 未注入索引时回退为容器顺序解码（小范围前进可续解）。
  */
 class FFmpegDecoder : public IDecoder {
 public:
@@ -29,11 +33,25 @@ public:
     QImage decodeFrame(int index) override;
     QString backendName() const override { return QStringLiteral("FFmpeg"); }
     QString lastError() const override { return error_; }
+    void setStreamIndex(const std::vector<NalUnit>* nals,
+                        const std::vector<FrameInfo>& frames) override;
 
 private:
+    struct AuEntry {
+        size_t nalBegin = 0;
+        size_t nalEnd = 0;
+        uint64_t fileOffset = 0;
+        bool isKeyframe = false;
+    };
+
     bool rewindToStart();
     bool decodeNextFrame(int& decodedIndex);
-    bool seekAndDecode(int index);
+    bool seekAndDecodeDemux(int index);
+    bool seekAndDecodeIndexed(int index);
+    bool decodeAuFromIndex(int auIndex);
+    bool receiveOneFrame();
+    QByteArray buildAvccPacket(size_t nalBegin, size_t nalEnd) const;
+    int findKeyframeAtOrBefore(int index) const;
     QImage frameToImage(AVFrame* frame);
     void closeDemuxer();
 
@@ -52,6 +70,10 @@ private:
     bool eofReached_ = false;
     QImage cache_;
     QString error_;
+
+    const std::vector<NalUnit>* nals_ = nullptr;
+    std::vector<AuEntry> aus_;
+    int lengthSize_ = 4;
 };
 
 } // namespace h264tool
