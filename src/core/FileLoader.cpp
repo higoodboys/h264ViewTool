@@ -8,6 +8,23 @@
 #include <QFileInfo>
 
 namespace h264tool {
+namespace {
+
+bool looksLikeMp4(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const QByteArray head = f.read(12);
+    return head.size() >= 8 && head.mid(4, 4) == "ftyp";
+}
+
+bool looksLikeAvi(const QString& path) {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    const QByteArray head = f.read(12);
+    return head.startsWith("RIFF") && head.mid(8, 4) == "AVI ";
+}
+
+} // namespace
 
 FileLoader::LoadResult FileLoader::load(const QString& path) {
     LoadResult out;
@@ -18,32 +35,17 @@ FileLoader::LoadResult FileLoader::load(const QString& path) {
         return out;
     }
 
-    const QString suffix = fi.suffix().toLower();
     DemuxResult demux;
 
-    auto looksLikeMp4 = [&]() {
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) return false;
-        const QByteArray head = f.read(12);
-        return head.size() >= 8 && head.mid(4, 4) == "ftyp";
-    };
-    auto looksLikeAvi = [&]() {
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly)) return false;
-        const QByteArray head = f.read(12);
-        return head.startsWith("RIFF") && head.mid(8, 4) == "AVI ";
-    };
-
-    if (suffix == QLatin1String("mp4") || suffix == QLatin1String("m4v") ||
-        suffix == QLatin1String("mov") || looksLikeMp4()) {
+    // 一律按内容魔数选择，不依赖扩展名（裸流扩展名各异）
+    if (looksLikeMp4(path)) {
         demux = Mp4Demuxer::load(path);
-    } else if (suffix == QLatin1String("avi") || looksLikeAvi()) {
+    } else if (looksLikeAvi(path)) {
         demux = AviDemuxer::load(path);
-    } else if (suffix == QLatin1String("h264") || suffix == QLatin1String("264") ||
-               suffix == QLatin1String("annexb")) {
+    } else if (RawH264Reader::looksLikeAnnexB(path)) {
         demux = RawH264Reader::load(path);
     } else {
-        // 未知扩展名：依次尝试
+        // 魔数不明：依次尝试
         demux = RawH264Reader::load(path);
         if (!demux.ok()) demux = Mp4Demuxer::load(path);
         if (!demux.ok()) demux = AviDemuxer::load(path);

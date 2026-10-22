@@ -42,7 +42,7 @@
 | `RawH264Reader` | 读裸流并分割 NAL |
 | `Mp4Demuxer` | 解析 ftyp/moov/trak/stsd(avcC)；progressive 走 stsz/stco，fMP4 走 moof/trun，输出 AVCC NAL |
 | `AviDemuxer` | 解析 RIFF/hdrl/movi，提取 H264 块 |
-| `FileLoader` | 按扩展名/魔数选择读取器 |
+| `FileLoader` | 按文件内容魔数选择 Raw / MP4 / AVI（不依赖扩展名） |
 | `IDecoder` | 解码接口：seek/decodeFrame → QImage |
 | `SyncController` | 控制窗与预览窗共享当前帧索引 |
 

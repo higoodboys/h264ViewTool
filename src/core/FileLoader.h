@@ -11,7 +11,7 @@
 namespace h264tool {
 
 /**
- * @brief 统一文件加载入口：按扩展名/魔数选择 Raw / MP4 / AVI。
+ * @brief 统一文件加载入口：按文件内容魔数选择 Raw / MP4 / AVI（不依赖扩展名）。
  */
 class FileLoader {
 public:

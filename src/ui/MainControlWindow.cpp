@@ -134,7 +134,7 @@ void MainControlWindow::onOpenAction() {
     const QString path = QFileDialog::getOpenFileName(
         this, QStringLiteral("打开媒体/码流"),
         QString(),
-        QStringLiteral("媒体与码流 (*.mp4 *.avi *.h264 *.264);;所有文件 (*.*)"));
+        QStringLiteral("所有文件 (*.*);;常见媒体 (*.mp4 *.avi *.h264 *.264 *.video)"));
     if (!path.isEmpty()) openFile(path);
 }
 

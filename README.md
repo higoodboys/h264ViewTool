@@ -6,7 +6,7 @@
 
 | 能力 | 说明 |
 |------|------|
-| 输入格式 | `.mp4`（含 fMP4/fragmented）/ `.avi` / `.h264` / `.264` |
+| 输入格式 | MP4（含 fMP4）/ AVI / Annex-B 裸流（按文件内容识别，不限扩展名） |
 | NAL 分割 | 起始码（Annex-B）或长度前缀（AVCC） |
 | 帧类型 | 解析 SPS/PPS + Slice Header，识别 I/P/B（含 IDR） |
 | 条带图 | 横轴帧序号，纵轴帧大小；I 红 / P 蓝 / B 绿 |
@@ -64,7 +64,13 @@ cmake -B build -A x64 -DH264TOOL_USE_FFMPEG=OFF -DCMAKE_PREFIX_PATH="C:/Qt/6.x/m
 
 ## 打包给别人用
 
-在 MSYS2 UCRT64 下编译完成后执行：
+在 MSYS2 UCRT64 下编译完成后打包（任选其一）：
+
+```bat
+scripts\pack_dist.bat
+```
+
+或在 UCRT64 终端：
 
 ```bash
 bash scripts/pack_dist.sh

@@ -17,6 +17,8 @@ struct DemuxResult {
 /** 裸 H.264 / Annex-B 文件读取 */
 class RawH264Reader {
 public:
+    /** 按文件内容判断是否像 Annex-B（起始码 + 合法 NAL type），不依赖扩展名 */
+    static bool looksLikeAnnexB(const QString& path);
     static DemuxResult load(const QString& path);
 };
 

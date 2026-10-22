@@ -2,8 +2,9 @@
 
 #if H264TOOL_HAS_FFMPEG
 
-#include <QFileInfo>
+#include "core/RawH264Reader.h"
 
+#include <algorithm>
 #include <cstring>
 
 extern "C" {
@@ -14,6 +15,10 @@ extern "C" {
 }
 
 namespace h264tool {
+
+namespace {
+const char kStartCode4[] = {0x00, 0x00, 0x00, 0x01};
+}
 
 FFmpegDecoder::FFmpegDecoder() = default;
 
@@ -59,13 +64,11 @@ bool FFmpegDecoder::open(const QString& path) {
     cache_ = QImage();
     path_ = path;
     error_.clear();
-    // 保留已注入的帧索引（open 只重建编解码器）
 
     const QByteArray pathUtf8 = path.toUtf8();
-    const QString suffix = QFileInfo(path).suffix().toLower();
 
-    rawStream_ = (suffix == QLatin1String("h264") || suffix == QLatin1String("264") ||
-                  suffix == QLatin1String("annexb"));
+    // 按内容识别裸流，不依赖扩展名
+    rawStream_ = RawH264Reader::looksLikeAnnexB(path);
 
     const AVInputFormat* iformat = nullptr;
     if (rawStream_)
@@ -111,11 +114,13 @@ bool FFmpegDecoder::open(const QString& path) {
     avcodec_parameters_to_context(codec_, st->codecpar);
     codec_->err_recognition = 0;
 
-    // avcC：lengthSizeMinusOne 在 extradata[4] 低 2 位
-    if (codec_->extradata_size >= 5 && codec_->extradata)
+    // avcC：configurationVersion==1 且 lengthSizeMinusOne 在 [4] 低 2 位
+    if (codec_->extradata_size >= 5 && codec_->extradata && codec_->extradata[0] == 1)
         lengthSize_ = (codec_->extradata[4] & 0x3) + 1;
     else
         lengthSize_ = 4;
+
+    detectPacketFormat();
 
     if (avcodec_open2(codec_, codec, nullptr) < 0) {
         error_ = QStringLiteral("avcodec_open2 失败");
@@ -143,6 +148,13 @@ bool FFmpegDecoder::open(const QString& path) {
     return true;
 }
 
+void FFmpegDecoder::detectPacketFormat() {
+    // 裸流 / 非 avcC extradata → Annex-B；MP4 的 avcC → AVCC
+    const bool hasAvcc = codec_ && codec_->extradata_size >= 5 && codec_->extradata &&
+                         codec_->extradata[0] == 1;
+    useAnnexB_ = rawStream_ || !hasAvcc;
+}
+
 void FFmpegDecoder::close() {
     closeDemuxer();
     if (sws_) { sws_freeContext(sws_); sws_ = nullptr; }
@@ -150,6 +162,7 @@ void FFmpegDecoder::close() {
     cache_ = QImage();
     path_.clear();
     rawStream_ = false;
+    useAnnexB_ = false;
     error_.clear();
     nals_ = nullptr;
     aus_.clear();
@@ -170,6 +183,19 @@ void FFmpegDecoder::setStreamIndex(const std::vector<NalUnit>* nals,
     }
     if (!aus_.empty())
         frameCount_ = static_cast<int>(aus_.size());
+
+    // 根据 NAL 头尺寸再校正：Annex-B 起始码为 3/4，AVCC 长度为 1..4 且文件为 MP4 时用 AVCC
+    if (nals_ && !nals_->empty()) {
+        const uint32_t hs = (*nals_)[0].headerSize;
+        if (hs == 3 || hs == 4)
+            useAnnexB_ = true;
+        else if (codec_ && codec_->extradata_size >= 5 && codec_->extradata &&
+                 codec_->extradata[0] == 1)
+            useAnnexB_ = false;
+    } else {
+        detectPacketFormat();
+    }
+
     lastIndex_ = -1;
     cache_ = QImage();
     if (codec_)
@@ -206,6 +232,53 @@ QByteArray FFmpegDecoder::buildAvccPacket(size_t nalBegin, size_t nalEnd) const 
     return pkt;
 }
 
+QByteArray FFmpegDecoder::buildAnnexBPacket(size_t nalBegin, size_t nalEnd) const {
+    QByteArray pkt;
+    if (!nals_ || nalBegin >= nalEnd || nalEnd > nals_->size())
+        return pkt;
+    for (size_t i = nalBegin; i < nalEnd; ++i) {
+        const auto& nal = (*nals_)[i];
+        if (nal.payload.empty()) continue;
+        pkt.append(kStartCode4, 4);
+        pkt.append(reinterpret_cast<const char*>(nal.payload.data()),
+                   static_cast<int>(nal.payload.size()));
+    }
+    return pkt;
+}
+
+QByteArray FFmpegDecoder::paramSetsBefore(size_t nalIndex) const {
+    QByteArray out;
+    if (!nals_) return out;
+    const size_t end = std::min(nalIndex, nals_->size());
+    const std::vector<uint8_t>* sps = nullptr;
+    const std::vector<uint8_t>* pps = nullptr;
+    for (size_t i = 0; i < end; ++i) {
+        const auto& nal = (*nals_)[i];
+        if (nal.nalUnitTypeId == 7)
+            sps = &nal.payload;
+        else if (nal.nalUnitTypeId == 8)
+            pps = &nal.payload;
+    }
+    // 若关键帧前没有，则在全文件中取最后一套
+    if (!sps || !pps) {
+        for (const auto& nal : *nals_) {
+            if (nal.nalUnitTypeId == 7)
+                sps = &nal.payload;
+            else if (nal.nalUnitTypeId == 8)
+                pps = &nal.payload;
+        }
+    }
+    if (sps && !sps->empty()) {
+        out.append(kStartCode4, 4);
+        out.append(reinterpret_cast<const char*>(sps->data()), static_cast<int>(sps->size()));
+    }
+    if (pps && !pps->empty()) {
+        out.append(kStartCode4, 4);
+        out.append(reinterpret_cast<const char*>(pps->data()), static_cast<int>(pps->size()));
+    }
+    return out;
+}
+
 bool FFmpegDecoder::receiveOneFrame() {
     const int rr = avcodec_receive_frame(codec_, frame_);
     if (rr == 0) {
@@ -215,36 +288,46 @@ bool FFmpegDecoder::receiveOneFrame() {
     return false;
 }
 
-bool FFmpegDecoder::decodeAuFromIndex(int auIndex) {
-    if (!codec_ || !packet_ || !nals_) return false;
-    if (auIndex < 0 || auIndex >= static_cast<int>(aus_.size())) return false;
-    const auto& au = aus_[static_cast<size_t>(auIndex)];
-    const QByteArray pktData = buildAvccPacket(au.nalBegin, au.nalEnd);
-    if (pktData.isEmpty()) return false;
+bool FFmpegDecoder::sendPacketBytes(const QByteArray& pktData) {
+    if (!codec_ || !packet_ || pktData.isEmpty()) return false;
 
     av_packet_unref(packet_);
     if (av_new_packet(packet_, pktData.size()) < 0) return false;
     std::memcpy(packet_->data, pktData.constData(), static_cast<size_t>(pktData.size()));
-    packet_->pts = auIndex;
-    packet_->dts = auIndex;
 
     const int sr = avcodec_send_packet(codec_, packet_);
     av_packet_unref(packet_);
-    if (sr < 0) {
-        // EAGAIN：先尽量收帧再重试一次
-        if (sr != AVERROR(EAGAIN))
-            return false;
-        while (receiveOneFrame()) {
-        }
-        av_packet_unref(packet_);
-        if (av_new_packet(packet_, pktData.size()) < 0) return false;
-        std::memcpy(packet_->data, pktData.constData(), static_cast<size_t>(pktData.size()));
-        if (avcodec_send_packet(codec_, packet_) < 0) {
-            av_packet_unref(packet_);
-            return false;
-        }
-        av_packet_unref(packet_);
+    if (sr == 0) return true;
+    if (sr != AVERROR(EAGAIN)) return false;
+
+    while (receiveOneFrame()) {
     }
+    if (av_new_packet(packet_, pktData.size()) < 0) return false;
+    std::memcpy(packet_->data, pktData.constData(), static_cast<size_t>(pktData.size()));
+    const int sr2 = avcodec_send_packet(codec_, packet_);
+    av_packet_unref(packet_);
+    return sr2 == 0;
+}
+
+bool FFmpegDecoder::decodeAuFromIndex(int auIndex, bool prependParamSets) {
+    if (!codec_ || !packet_ || !nals_) return false;
+    if (auIndex < 0 || auIndex >= static_cast<int>(aus_.size())) return false;
+    const auto& au = aus_[static_cast<size_t>(auIndex)];
+
+    QByteArray pktData;
+    if (useAnnexB_) {
+        if (prependParamSets)
+            pktData = paramSetsBefore(au.nalBegin);
+        pktData.append(buildAnnexBPacket(au.nalBegin, au.nalEnd));
+    } else {
+        pktData = buildAvccPacket(au.nalBegin, au.nalEnd);
+    }
+    if (pktData.isEmpty()) return false;
+
+    packet_->pts = auIndex;
+    packet_->dts = auIndex;
+    if (!sendPacketBytes(pktData))
+        return false;
 
     // 一包一帧：拿到首帧即停。继续 receive 若返回 EAGAIN 会把 frame 置空。
     const int rr = avcodec_receive_frame(codec_, frame_);
@@ -263,24 +346,27 @@ bool FFmpegDecoder::seekAndDecodeIndexed(int index) {
 
     const int kf = findKeyframeAtOrBefore(index);
     int start = kf;
+    bool restartFromKeyframe = true;
 
-    // 已在同一 GOP 且位于目标之前：只需续解
     if (lastIndex_ >= kf && lastIndex_ < index && !cache_.isNull()) {
         start = lastIndex_ + 1;
+        restartFromKeyframe = false;
     } else {
         avcodec_flush_buffers(codec_);
         eofReached_ = false;
         start = kf;
+        restartFromKeyframe = true;
     }
 
     for (int i = start; i <= index; ++i) {
-        if (!decodeAuFromIndex(i)) {
-            // 非关键帧偶发失败时仍继续尝试后续；关键帧失败则中止
+        const bool prepend = useAnnexB_ && restartFromKeyframe && i == start;
+        if (!decodeAuFromIndex(i, prepend)) {
             if (aus_[static_cast<size_t>(i)].isKeyframe || i == index) {
-                error_ = QStringLiteral("索引解码帧 %1 失败 (from %2, keyframe %3)")
+                error_ = QStringLiteral("索引解码帧 %1 失败 (from %2, keyframe %3, %4)")
                              .arg(index)
                              .arg(start)
-                             .arg(kf);
+                             .arg(kf)
+                             .arg(useAnnexB_ ? QStringLiteral("AnnexB") : QStringLiteral("AVCC"));
                 return false;
             }
             continue;
@@ -362,7 +448,6 @@ bool FFmpegDecoder::decodeNextFrame(int& decodedIndex) {
 bool FFmpegDecoder::seekAndDecodeDemux(int index) {
     if (!fmt_ || !codec_ || index < 0) return false;
 
-    // 仅在回退或已 EOF 时回绕；向前跳转尽量用关键帧时间戳（若无索引则顺序解）
     const bool needRewind =
         (lastIndex_ >= 0 && index <= lastIndex_) || eofReached_;
 

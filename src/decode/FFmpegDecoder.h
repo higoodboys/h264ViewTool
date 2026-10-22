@@ -4,6 +4,7 @@
 
 #if H264TOOL_HAS_FFMPEG
 
+#include <QByteArray>
 #include <QString>
 #include <vector>
 
@@ -19,8 +20,9 @@ namespace h264tool {
  * @brief 基于 FFmpeg 的软解。
  *
  * 若调用 setStreamIndex，则按已解析的 NAL/关键帧索引在内存中喂给解码器：
+ * - MP4/AVCC：长度前缀包
+ * - 裸流 Annex-B：起始码包，关键帧前补 SPS/PPS
  * 跳转时从最近 I/IDR 解到目标帧，无需从文件头重解。
- * 未注入索引时回退为容器顺序解码（小范围前进可续解）。
  */
 class FFmpegDecoder : public IDecoder {
 public:
@@ -48,15 +50,20 @@ private:
     bool decodeNextFrame(int& decodedIndex);
     bool seekAndDecodeDemux(int index);
     bool seekAndDecodeIndexed(int index);
-    bool decodeAuFromIndex(int auIndex);
+    bool decodeAuFromIndex(int auIndex, bool prependParamSets);
+    bool sendPacketBytes(const QByteArray& pktData);
     bool receiveOneFrame();
     QByteArray buildAvccPacket(size_t nalBegin, size_t nalEnd) const;
+    QByteArray buildAnnexBPacket(size_t nalBegin, size_t nalEnd) const;
+    QByteArray paramSetsBefore(size_t nalIndex) const;
+    void detectPacketFormat();
     int findKeyframeAtOrBefore(int index) const;
     QImage frameToImage(AVFrame* frame);
     void closeDemuxer();
 
     QString path_;
     bool rawStream_ = false;
+    bool useAnnexB_ = false; ///< 索引喂包用 Annex-B（裸流）；否则 AVCC
 
     AVFormatContext* fmt_ = nullptr;
     AVCodecContext* codec_ = nullptr;
